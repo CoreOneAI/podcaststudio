@@ -1,0 +1,251 @@
+// src/components/VideoRoom.jsx
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { auth } from '../firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import Video from 'twilio-video';
+import './VideoRoom.css';
+
+const functions = getFunctions();
+const generateTwilioTokenCallable = httpsCallable(functions, 'generateTwilioToken');
+
+const VideoRoom = ({ roomName }) => {
+    const [room, setRoom] = useState(null);
+    const [participants, setParticipants] = useState([]);
+    const [error, setError] = useState(null);
+    const [isAudioEnabled, setIsAudioEnabled] = useState(true);
+    const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+    const [isConnecting, setIsConnecting] = useState(false); // New state to prevent multiple connection attempts
+
+    const localVideoRef = useRef();
+    const participantRefs = useRef({});
+
+    // Function to attach tracks to the DOM (no change)
+    const attachTracks = useCallback((tracks, container) => {
+        tracks.forEach(track => {
+            const attachedElement = track.attach();
+            if (attachedElement) {
+                container.appendChild(attachedElement);
+            }
+        });
+    }, []);
+
+    // Function to remove tracks from the DOM (no change)
+    const detachTracks = useCallback((tracks) => {
+        tracks.forEach(track => {
+            track.detach().forEach(element => element.remove());
+        });
+    }, []);
+
+    const handleToggleAudio = useCallback(() => {
+        if (room && room.localParticipant) {
+            room.localParticipant.audioTracks.forEach(publication => {
+                if (publication.track) {
+                    const newAudioState = !publication.track.isEnabled;
+                    publication.track.enable(newAudioState);
+                    setIsAudioEnabled(newAudioState);
+                    console.log(`Local audio ${newAudioState ? 'enabled' : 'disabled'}`);
+                }
+            });
+        }
+    }, [room]);
+
+    const handleToggleVideo = useCallback(() => {
+        if (room && room.localParticipant) {
+            room.localParticipant.videoTracks.forEach(publication => {
+                if (publication.track) {
+                    const newVideoState = !publication.track.isEnabled;
+                    publication.track.enable(newVideoState);
+                    setIsVideoEnabled(newVideoState);
+                    console.log(`Local video ${newVideoState ? 'enabled' : 'disabled'}`);
+                }
+            });
+        }
+    }, [room]);
+
+
+    useEffect(() => {
+        // We listen to the auth state directly inside this component to react to login/logout
+        const unsubscribe = auth.onAuthStateChanged(user => {
+            if (user && roomName && !room && !isConnecting) {
+                // If a user is logged in, there's a roomName, we're not in a room, and not already connecting
+                setIsConnecting(true); // Set connecting state
+                connectToRoom(user);
+            } else if (!user && room) {
+                // If user logs out while in a room, disconnect
+                handleEndCall();
+            } else if (!user && !room) {
+                // Not logged in and not in a room, show error
+                setError("You must be logged in to join a video room.");
+            }
+            // If user is logged in and we are already in a room, do nothing
+        });
+
+        // Cleanup on unmount
+        return () => {
+            unsubscribe();
+            // Ensure we disconnect if component unmounts while in a room
+            if (room) {
+                room.disconnect();
+            }
+        };
+    }, [roomName, room, isConnecting, handleEndCall]); // Add isConnecting and handleEndCall to dependencies
+
+    const connectToRoom = async (user) => { // connectToRoom now takes the user object
+        setError(null); // Clear any previous errors
+        try {
+            console.log("Requesting Twilio token for room:", roomName, "by user:", user.uid);
+            const response = await generateTwilioTokenCallable({ roomName: roomName });
+            const twilioToken = response.data.token;
+            console.log("Received Twilio token successfully.");
+
+            const newRoom = await Video.connect(twilioToken, {
+                name: roomName,
+                audio: true,
+                video: { width: 640 },
+            });
+            setRoom(newRoom);
+            console.log(`Successfully joined Twilio Room: ${newRoom.name}`);
+
+            if (localVideoRef.current) {
+                attachTracks(Array.from(newRoom.localParticipant.tracks.values()).map(publication => publication.track), localVideoRef.current);
+            }
+
+            newRoom.participants.forEach(participant => {
+                setParticipants(prevParticipants => [...prevParticipants, participant]);
+            });
+
+            newRoom.on('participantConnected', participant => {
+                console.log(`Participant '${participant.identity}' connected`);
+                setParticipants(prevParticipants => [...prevParticipants, participant]);
+            });
+
+            newRoom.on('participantDisconnected', participant => {
+                console.log(`Participant '${participant.identity}' disconnected`);
+                detachTracks(Array.from(participant.tracks.values()).map(publication => publication.track));
+                setParticipants(prevParticipants => prevParticipants.filter(p => p.identity !== participant.identity));
+            });
+
+            // Clean up when leaving the room (this part is now inside the new useEffect's cleanup)
+            // No, this should be handled by handleEndCall or the outer useEffect cleanup for `room` itself.
+            // The `return` cleanup of the `connectToRoom` promise itself is less relevant here.
+
+        } catch (err) {
+            console.error("Failed to connect to Twilio Room:", err);
+            setError(`Failed to join the room: ${err.message || "Unknown error"}. Please ensure you are logged in.`);
+            // If connection fails, reset isConnecting to allow re-attempts
+            setIsConnecting(false);
+        } finally {
+            // Once connection attempt is done (success or failure), reset connecting state
+            setIsConnecting(false);
+        }
+    };
+
+
+    useEffect(() => {
+        participants.forEach(participant => {
+            const participantContainer = participantRefs.current[participant.identity];
+            if (participantContainer) {
+                while (participantContainer.firstChild) {
+                    participantContainer.removeChild(participantContainer.firstChild);
+                }
+                participant.on('trackSubscribed', track => attachTracks([track], participantContainer));
+                participant.on('trackUnsubscribed', track => detachTracks([track]));
+                attachTracks(Array.from(participant.tracks.values()).map(pub => pub.track), participantContainer);
+            }
+        });
+    }, [participants, attachTracks, detachTracks]);
+
+
+    const handleEndCall = useCallback(() => { // Made handleEndCall useCallback
+        if (room) {
+            room.disconnect();
+            setRoom(null);
+            setParticipants([]);
+            console.log("Call ended.");
+        }
+        // Potentially navigate away or show a "call ended" screen
+    }, [room]);
+
+
+    if (error) {
+        return <div className="video-room-error">{error}</div>;
+    }
+
+    // Only show "Connecting..." if we are actually trying to connect
+    if (!room && isConnecting) {
+        return (
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: '#1a1a1a', color: 'white', display: 'flex',
+                justifyContent: 'center', alignItems: 'center', fontSize: '2em'
+            }}>
+                Connecting to video room...
+            </div>
+        );
+    }
+
+    // If not connecting and not in a room, and there's no error,
+    // it means we're waiting for authentication or the connect attempt failed.
+    // In this case, we could display a message like "Awaiting connection..."
+    // or rely on the error message if auth fails.
+    if (!room && !isConnecting && !error) {
+        return (
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: '#1a1a1a', color: 'white', display: 'flex',
+                justifyContent: 'center', alignItems: 'center', fontSize: '2em'
+            }}>
+                Loading video room... (Ensure you are logged in)
+            </div>
+        );
+    }
+
+
+    return (
+        <div className="video-room-container">
+            {/* Main Video Area (Active Speaker / Screen Share) */}
+            <div className="main-content-area"> {/* Added this wrapper div as per CSS */}
+                <div className="main-video-pane">
+                    <h3>Local Participant: {auth.currentUser?.displayName || auth.currentUser?.uid}</h3>
+                    <div ref={localVideoRef} className="local-video-feed"></div>
+                </div>
+
+                {/* Smaller, horizontally scrolling participant videos */}
+                <div className="participant-gallery">
+                    {participants.length > 0 ? (
+                        participants.map(participant => (
+                            <div key={participant.identity} className="remote-participant-feed">
+                                <h4>{participant.identity}</h4>
+                                <div ref={el => participantRefs.current[participant.identity] = el}></div>
+                            </div>
+                        ))
+                    ) : (
+                        <p>Waiting for participants...</p>
+                    )}
+                </div>
+
+                {/* Intuitive Control Bar */}
+                <div className="control-bar">
+                    <button onClick={handleToggleAudio}>
+                        {isAudioEnabled ? '🎙️ Mute' : '🔇 Unmute'}
+                    </button>
+                    <button onClick={handleToggleVideo}>
+                        {isVideoEnabled ? '📹 Stop Video' : '📷 Start Video'}
+                    </button>
+                    <button onClick={() => console.log("Screen Share toggle")}>🖥️ Screen Share</button>
+                    <button className="end-call-button" onClick={handleEndCall}>📞 End Call</button>
+                </div>
+            </div> {/* End main-content-area */}
+
+            {/* Integrated Sidebar (Placeholder for now) */}
+            <div className="sidebar">
+                <h4>Chat & Details</h4>
+                <p>Chat messages will go here (powered by Firestore)</p>
+                <p>Meeting details here (title, requester, priority)</p>
+            </div>
+        </div>
+    );
+};
+
+export default VideoRoom;

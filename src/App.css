@@ -1,42 +1,49 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+// src/App.jsx
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
+import VideoRoom from './components/VideoRoom';
+import AuthManager from './components/AuthManager';
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
+const Home = () => (
+  <div style={{ padding: '20px', color: 'white' }}>
+    <h2>Welcome to the Encore Portal Home!</h2>
+    <p>This is where your dashboard and other portal features will reside.</p>
+  </div>
+);
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
+const Navbar = () => {
+  const defaultRoomName = "internal-team-meeting-room";
+  return (
+    <nav style={{
+      display: 'flex',
+      justifyContent: 'space-around',
+      backgroundColor: '#111827',
+      padding: '14px 0',
+      borderBottom: '1px solid #1f2937'
+    }}>
+      <Link to="/" style={{ color: '#60a5fa', textDecoration: 'none', fontSize: '1.05em' }}>Home</Link>
+      <Link to={`/video-room/${defaultRoomName}`} style={{ color: '#60a5fa', textDecoration: 'none', fontSize: '1.05em' }}>Interview Room</Link>
+    </nav>
+  );
+};
 
-.card {
-  padding: 2em;
-}
+const VideoRoomPage = () => {
+  const { roomName } = useParams();
+  return <VideoRoom roomName={roomName} />;
+};
 
-.read-the-docs {
-  color: #888;
+export default function App() {
+  return (
+    <Router>
+      <div style={{ backgroundColor: '#0b1220', minHeight: '100vh' }}>
+        <Navbar />
+        <AuthManager />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/video-room/:roomName" element={<VideoRoomPage />} />
+        </Routes>
+      </div>
+    </Router>
+  );
 }
