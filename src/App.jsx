@@ -1,11 +1,16 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, NavLink, useParams } from "react-router-dom";
+import {
+  HashRouter as Router,
+  Routes,
+  Route,
+  NavLink,
+  useParams,
+} from "react-router-dom";
 
 import VideoRoom from "./components/VideoRoom";
-// IMPORTANT: Comment this out temporarily until Firebase env vars are confirmed working.
-// import AuthManager from "./components/AuthManager";
+import AuthManager from "./components/AuthManager";
 
-const BUILD_STAMP = "2025-11-26-1"; // bump this anytime you redeploy to prove you’re seeing the new build
+const BUILD_STAMP = "2025-11-26-1";
 
 function Shell({ children }) {
   return (
@@ -49,7 +54,7 @@ function Shell({ children }) {
           </NavLink>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.85 }}>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>
           Build: <b>{BUILD_STAMP}</b>
         </div>
       </header>
@@ -63,7 +68,7 @@ function Home() {
   return (
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
       <h2 style={{ marginTop: 0 }}>Encore Studio</h2>
-      <p style={{ opacity: 0.85 }}>
+      <p style={{ opacity: 0.8 }}>
         If you can see this build stamp, you are viewing the correct deploy.
       </p>
     </div>
@@ -79,7 +84,7 @@ function NotFound() {
   return (
     <div style={{ maxWidth: 980, margin: "0 auto" }}>
       <h2 style={{ marginTop: 0 }}>Not Found</h2>
-      <p style={{ opacity: 0.85 }}>This route doesn’t exist.</p>
+      <p style={{ opacity: 0.8 }}>This route doesn’t exist.</p>
     </div>
   );
 }
@@ -88,9 +93,7 @@ export default function App() {
   return (
     <Router>
       <Shell>
-        {/* Turn this back on AFTER Firebase env vars are correct
         <AuthManager />
-        */}
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/video-room/:roomName" element={<VideoRoomRoute />} />
